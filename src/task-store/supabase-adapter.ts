@@ -23,14 +23,24 @@ const toTask = (r: TaskRow): Task => ({
   createdAt: r.created_at,
 });
 
-/**
- * Name of the Realtime channel for a Passphrase: hex SHA-256 of a fixed prefix
- * plus the Passphrase. Must match private.set_passphrase in the SQL migration.
- */
-export async function realtimeTopic(passphrase: string): Promise<string> {
-  const bytes = new TextEncoder().encode(`todo-realtime:${passphrase}`);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+interface ListRow {
+  id: string;
+  name: string;
+  is_inbox: boolean;
+}
+
+const LIST_COLUMNS = "id, name, is_inbox";
+const toList = (r: ListRow): List => ({ id: r.id, name: r.name, isInbox: r.is_inbox });
+
+/** The server rejected the request (bad key, missing function, ...), as opposed to being unreachable. */
+export class RequestRejectedError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RequestRejectedError";
+  }
 }
 
 export interface SupabaseConfig {
@@ -47,28 +57,40 @@ export function createSupabaseAdapter(config: SupabaseConfig, passphrase: string
 
   const adapter: StorageAdapter & { checkPassphrase(): Promise<boolean> } = {
     /**
-     * Live changes arrive as Realtime broadcast "nudges" on a channel named
-     * after a hash of the Passphrase (see docs/supabase-setup.md). The browser
+     * Live changes arrive as Realtime broadcast "nudges" on a channel with a
+     * random secret name that the database hands out to Passphrase holders
+     * (public.realtime_topic, see docs/supabase-setup.md). The browser
      * going offline/online drops and re-creates the channel, so recovery needs no reload.
      */
     subscribe({ onChange, onConnection }) {
       let channel: ReturnType<typeof client.channel> | null = null;
       let stopped = false;
+      // Bumped whenever the channel is dropped or replaced, so status callbacks
+      // from a channel that is no longer current are ignored.
+      let generation = 0;
 
       async function listen() {
-        const topic = await realtimeTopic(passphrase);
-        if (stopped) return;
+        const mine = ++generation;
+        const { data: topic, error } = await client.rpc("realtime_topic");
+        if (stopped || mine !== generation) return;
+        if (error || typeof topic !== "string") {
+          onConnection(false);
+          return;
+        }
         channel = client
           .channel(topic)
-          .on("broadcast", { event: "change" }, () => onChange())
+          .on("broadcast", { event: "change" }, () => {
+            if (mine === generation) onChange();
+          })
           .subscribe((status) => {
-            if (stopped) return;
+            if (stopped || mine !== generation) return;
             if (status === "SUBSCRIBED") onConnection(true);
             else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED")
               onConnection(false);
           });
       }
       async function drop() {
+        generation++;
         const old = channel;
         channel = null;
         if (old) await client.removeChannel(old);
@@ -93,18 +115,36 @@ export function createSupabaseAdapter(config: SupabaseConfig, passphrase: string
 
     /** True when the database accepts the Passphrase. Throws if the server can't be reached. */
     async checkPassphrase() {
-      const { data, error } = await client.rpc("passphrase_ok");
-      if (error) throw new Error(error.message);
+      const { data, error, status } = await client.rpc("passphrase_ok");
+      if (error) {
+        if (status >= 400) throw new RequestRejectedError(status, error.message);
+        throw new Error(error.message);
+      }
       return data === true;
     },
 
     async listLists() {
       const { data, error } = await client
         .from("lists")
-        .select("id, name")
+        .select(LIST_COLUMNS)
         .order("created_at");
       if (error) throw new Error(error.message);
-      return (data ?? []) as List[];
+      return ((data ?? []) as ListRow[]).map(toList);
+    },
+
+    async getList(listId) {
+      const { data, error } = await client.from("lists").select(LIST_COLUMNS).eq("id", listId).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data ? toList(data as ListRow) : null;
+    },
+
+    async countTasks(listId) {
+      const { count, error } = await client
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("list_id", listId);
+      if (error) throw new Error(error.message);
+      return count ?? 0;
     },
 
     async listTasks(listId) {
@@ -149,9 +189,9 @@ export function createSupabaseAdapter(config: SupabaseConfig, passphrase: string
     },
 
     async insertList(name) {
-      const { data, error } = await client.from("lists").insert({ name }).select("id, name").single();
+      const { data, error } = await client.from("lists").insert({ name }).select(LIST_COLUMNS).single();
       if (error) throw new Error(error.message);
-      return data as List;
+      return toList(data as ListRow);
     },
 
     async updateListName(listId, name) {

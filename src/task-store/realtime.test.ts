@@ -30,6 +30,64 @@ describe("task store: live updates", () => {
   });
 });
 
+describe("task store: live updates from other device edits", () => {
+  async function setup() {
+    const { adapter, store } = newStore();
+    const inbox = await store.inbox();
+    const task = await store.addTask(inbox.id, "original");
+    const listener = vi.fn();
+    store.subscribe(listener);
+    return { adapter, store, inbox, task, listener };
+  }
+
+  it("notifies when another device edits a Task", async () => {
+    const { adapter, store, inbox, task, listener } = await setup();
+    adapter.otherDevice.editTask(task.id, "renamed");
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await store.openTasks(inbox.id)).map((t) => t.title)).toEqual(["renamed"]);
+  });
+
+  it("notifies when another device ticks a Task", async () => {
+    const { adapter, store, inbox, task, listener } = await setup();
+    adapter.otherDevice.tick(task.id);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(await store.openTasks(inbox.id)).toEqual([]);
+    expect((await store.doneTasks(inbox.id)).map((t) => t.title)).toEqual(["original"]);
+  });
+
+  it("notifies when another device deletes a Task", async () => {
+    const { adapter, store, inbox, task, listener } = await setup();
+    adapter.otherDevice.deleteTask(task.id);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(await store.openTasks(inbox.id)).toEqual([]);
+  });
+
+  it("notifies when another device creates a List", async () => {
+    const { adapter, store, listener } = await setup();
+    adapter.otherDevice.createList("Work");
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await store.lists()).map((l) => l.name)).toEqual(["Inbox", "Work"]);
+  });
+
+  it("notifies when another device renames a List", async () => {
+    const { adapter, store, listener } = await setup();
+    const id = adapter.otherDevice.createList("Work");
+    listener.mockClear();
+    adapter.otherDevice.renameList(id, "Job");
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await store.lists()).map((l) => l.name)).toEqual(["Inbox", "Job"]);
+  });
+
+  it("notifies when another device deletes a List", async () => {
+    const { adapter, store, listener } = await setup();
+    const id = adapter.otherDevice.createList("Work");
+    listener.mockClear();
+    adapter.otherDevice.deleteList(id);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((await store.lists()).map((l) => l.name)).toEqual(["Inbox"]);
+  });
+});
+
 describe("task store: offline", () => {
   it("is online at first", () => {
     expect(newStore().store.isOnline()).toBe(true);

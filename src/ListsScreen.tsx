@@ -31,7 +31,7 @@ export function ListsScreen({ store }: { store: TaskStore }) {
   const online = useOnline(store);
 
   const current = lists.find((l) => l.id === currentId) ?? null;
-  const isInbox = current?.name === "Inbox";
+  const isInbox = current?.isInbox === true;
 
   async function run(action: () => Promise<void>, failure: string) {
     try {

@@ -6,12 +6,21 @@ export interface InMemoryAdapter extends StorageAdapter {
   /** Test control: the connection drops (false) or returns (true). Reads and writes fail while it is down. */
   setConnected(connected: boolean): void;
   /** Test control: things another device does. Changes made while the connection is down are not announced live. */
-  otherDevice: { addTask(listId: string, title: string): void };
+  otherDevice: {
+    addTask(listId: string, title: string): void;
+    editTask(id: string, title: string): void;
+    tick(id: string): void;
+    deleteTask(id: string): void;
+    /** Returns the new List's id. */
+    createList(name: string): string;
+    renameList(id: string, name: string): void;
+    deleteList(id: string): void;
+  };
 }
 
 /** In-memory fake of the storage adapter, seeded with the Inbox List like the database. */
 export function createInMemoryAdapter(): InMemoryAdapter {
-  const lists: List[] = [{ id: "list-inbox", name: "Inbox" }];
+  const lists: List[] = [{ id: "list-inbox", name: "Inbox", isInbox: true }];
   const tasks: Task[] = [];
   let failing = false;
   let clock = 0;
@@ -36,6 +45,24 @@ export function createInMemoryAdapter(): InMemoryAdapter {
     if (!connected) throw new Error("offline");
   };
   let listSeq = 1;
+  const announce = () => {
+    if (connected) subscribers.forEach((h) => h.onChange());
+  };
+  const taskById = (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) throw new Error("Task not found");
+    return task;
+  };
+  const listById = (id: string) => {
+    const list = lists.find((l) => l.id === id);
+    if (!list) throw new Error("List not found");
+    return list;
+  };
+  function removeList(id: string) {
+    lists.splice(lists.indexOf(listById(id)), 1);
+    // Mirrors the database's ON DELETE CASCADE.
+    for (let j = tasks.length - 1; j >= 0; j--) if (tasks[j].listId === id) tasks.splice(j, 1);
+  }
 
   return {
     failWrites(fail) {
@@ -49,7 +76,33 @@ export function createInMemoryAdapter(): InMemoryAdapter {
     otherDevice: {
       addTask(listId, title) {
         insert(listId, title);
-        if (connected) subscribers.forEach((h) => h.onChange());
+        announce();
+      },
+      editTask(id, title) {
+        taskById(id).title = title;
+        announce();
+      },
+      tick(id) {
+        taskById(id).done = true;
+        announce();
+      },
+      deleteTask(id) {
+        tasks.splice(tasks.indexOf(taskById(id)), 1);
+        announce();
+      },
+      createList(name) {
+        const list: List = { id: `list-${++listSeq}`, name, isInbox: false };
+        lists.push(list);
+        announce();
+        return list.id;
+      },
+      renameList(id, name) {
+        listById(id).name = name;
+        announce();
+      },
+      deleteList(id) {
+        removeList(id);
+        announce();
       },
     },
     subscribe(handlers) {
@@ -59,6 +112,15 @@ export function createInMemoryAdapter(): InMemoryAdapter {
     async listLists() {
       requireConnection();
       return lists.map((l) => ({ ...l }));
+    },
+    async getList(listId) {
+      requireConnection();
+      const list = lists.find((l) => l.id === listId);
+      return list ? { ...list } : null;
+    },
+    async countTasks(listId) {
+      requireConnection();
+      return tasks.filter((t) => t.listId === listId).length;
     },
     async listTasks(listId) {
       requireConnection();
@@ -87,7 +149,7 @@ export function createInMemoryAdapter(): InMemoryAdapter {
     async insertList(name) {
       requireConnection();
       if (failing) throw new Error("save failed");
-      const list: List = { id: `list-${++listSeq}`, name };
+      const list: List = { id: `list-${++listSeq}`, name, isInbox: false };
       lists.push(list);
       return { ...list };
     },
@@ -101,11 +163,7 @@ export function createInMemoryAdapter(): InMemoryAdapter {
     async deleteList(listId) {
       requireConnection();
       if (failing) throw new Error("save failed");
-      const i = lists.findIndex((l) => l.id === listId);
-      if (i < 0) throw new Error("List not found");
-      lists.splice(i, 1);
-      // Mirrors the database's ON DELETE CASCADE.
-      for (let j = tasks.length - 1; j >= 0; j--) if (tasks[j].listId === listId) tasks.splice(j, 1);
+      removeList(listId);
     },
     async updateTaskList(taskId, listId) {
       requireConnection();

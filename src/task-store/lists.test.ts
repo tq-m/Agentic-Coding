@@ -60,6 +60,47 @@ describe("task store: Lists", () => {
     expect(await listNames(store)).toEqual(["Inbox"]);
   });
 
+  it("finds the Inbox by its flag, not its name", async () => {
+    const { adapter, store } = newStore();
+    const inbox = await store.inbox();
+    expect(inbox.isInbox).toBe(true);
+    // Even if the stored name were changed behind the store's back, the Inbox stays the Inbox.
+    await adapter.updateListName(inbox.id, "Renamed elsewhere");
+    expect((await store.inbox()).id).toBe(inbox.id);
+    await expect(store.renameList(inbox.id, "Later")).rejects.toThrow("Inbox");
+    await expect(store.deleteList(inbox.id)).rejects.toThrow("Inbox");
+  });
+
+  it("a user List named like the Inbox is not the Inbox", async () => {
+    const { adapter, store } = newStore();
+    const inbox = await store.inbox();
+    await adapter.updateListName(inbox.id, "Elsewhere");
+    const other = await store.createList("Inbox");
+    expect(other.isInbox).toBe(false);
+    expect((await store.inbox()).id).toBe(inbox.id);
+    await store.deleteList(other.id);
+  });
+
+  it("does not download Tasks to check whether a List has any", async () => {
+    const { adapter, store } = newStore();
+    const work = await store.createList("Work");
+    await store.addTask(work.id, "report");
+    const spy = vi.spyOn(adapter, "listTasks");
+    expect(await store.listHasTasks(work.id)).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("deletes and moves with a targeted lookup, not by reading every List", async () => {
+    const { adapter, store } = newStore();
+    const inbox = await store.inbox();
+    const work = await store.createList("Work");
+    const task = await store.addTask(inbox.id, "report");
+    const spy = vi.spyOn(adapter, "listLists");
+    await store.moveTask(task.id, work.id);
+    await store.deleteList(work.id);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it("deletes an empty List", async () => {
     const { store } = newStore();
     const work = await store.createList("Work");

@@ -1,7 +1,5 @@
 import type { List, StorageAdapter, Task } from "./types";
 
-export const INBOX_NAME = "Inbox";
-
 /** Thrown by an edit while the connection is down. Nothing was saved. */
 export class OfflineError extends Error {
   constructor() {
@@ -80,14 +78,16 @@ export function createTaskStore(adapter: StorageAdapter, options: TaskStoreOptio
   };
 
   /** Trimmed List name; rejects blank names and names already used by another List. */
-  async function validListName(name: string, exceptListId?: string): Promise<string> {
+  async function validListName(
+    name: string,
+    exceptListId?: string,
+  ): Promise<{ name: string; lists: List[] }> {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("A List needs a name");
-    const taken = (await adapter.listLists()).some(
-      (l) => l.id !== exceptListId && l.name.toLowerCase() === trimmed.toLowerCase(),
-    );
+    const lists = await adapter.listLists();
+    const taken = lists.some((l) => l.id !== exceptListId && l.name.toLowerCase() === trimmed.toLowerCase());
     if (taken) throw new Error("A List with that name already exists");
-    return trimmed;
+    return { name: trimmed, lists };
   }
 
   return {
@@ -97,44 +97,44 @@ export function createTaskStore(adapter: StorageAdapter, options: TaskStoreOptio
 
     /** The default List that exists from the start. */
     async inbox(): Promise<List> {
-      const inbox = (await adapter.listLists()).find((l) => l.name === INBOX_NAME);
+      const inbox = (await adapter.listLists()).find((l) => l.isInbox);
       if (!inbox) throw new Error("Inbox List is missing");
       return inbox;
     },
 
     async createList(name: string): Promise<List> {
       requireOnline();
-      const trimmed = await validListName(name);
+      const { name: trimmed } = await validListName(name);
       return adapter.insertList(trimmed);
     },
 
-    /** The Inbox cannot be renamed: it is found by its name. */
+    /** The Inbox cannot be renamed. */
     async renameList(listId: string, name: string): Promise<void> {
       requireOnline();
-      const trimmed = await validListName(name, listId);
-      const list = (await adapter.listLists()).find((l) => l.id === listId);
+      const { name: trimmed, lists } = await validListName(name, listId);
+      const list = lists.find((l) => l.id === listId);
       if (!list) throw new Error("List not found");
-      if (list.name === INBOX_NAME) throw new Error("The Inbox cannot be renamed");
+      if (list.isInbox) throw new Error("The Inbox cannot be renamed");
       await adapter.updateListName(listId, trimmed);
     },
 
     /** Deletes a List and its Tasks. The Inbox cannot be deleted. */
     async deleteList(listId: string): Promise<void> {
       requireOnline();
-      const list = (await adapter.listLists()).find((l) => l.id === listId);
+      const list = await adapter.getList(listId);
       if (!list) throw new Error("List not found");
-      if (list.name === INBOX_NAME) throw new Error("The Inbox cannot be deleted");
+      if (list.isInbox) throw new Error("The Inbox cannot be deleted");
       await adapter.deleteList(listId);
     },
 
     /** True when the List holds any Task, open or Done (screens confirm before deleting it). */
     async listHasTasks(listId: string): Promise<boolean> {
-      return (await adapter.listTasks(listId)).length > 0;
+      return (await adapter.countTasks(listId)) > 0;
     },
 
     async moveTask(taskId: string, listId: string): Promise<void> {
       requireOnline();
-      if (!(await adapter.listLists()).some((l) => l.id === listId)) {
+      if (!(await adapter.getList(listId))) {
         throw new Error("List not found");
       }
       await adapter.updateTaskList(taskId, listId);

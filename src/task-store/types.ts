@@ -2,6 +2,8 @@
 export interface List {
   id: string;
   name: string;
+  /** True for the default List that cannot be renamed or deleted. */
+  isInbox: boolean;
 }
 
 /** A single thing to do. Belongs to exactly one List. */
@@ -36,7 +38,11 @@ export interface StorageAdapter {
    */
   subscribe(handlers: ChangeHandlers): () => void;
   listLists(): Promise<List[]>;
+  /** One List by id, or null when it does not exist. */
+  getList(listId: string): Promise<List | null>;
   listTasks(listId: string): Promise<Task[]>;
+  /** How many Tasks (open or Done) a List holds, without downloading them. */
+  countTasks(listId: string): Promise<number>;
   insertTask(input: {
     listId: string;
     title: string;

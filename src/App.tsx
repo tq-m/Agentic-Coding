@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createSupabaseAdapter, type SupabaseConfig } from "./task-store/supabase-adapter";
+import { createSupabaseAdapter, RequestRejectedError, type SupabaseConfig } from "./task-store/supabase-adapter";
 import { createTaskStore, type TaskStore } from "./task-store/task-store";
 import { passphraseMemory } from "./passphrase-memory";
 import { Gate } from "./Gate";
@@ -16,6 +16,16 @@ type Phase =
   | { kind: "checking" }
   | { kind: "gate"; error?: string }
   | { kind: "open"; store: TaskStore; changing?: boolean };
+
+/** Message for a failed connection check: a rejected request (bad key, missing setup) vs an unreachable server. */
+function connectionMessage(e: unknown): string {
+  if (e instanceof RequestRejectedError) {
+    return e.status === 401 || e.status === 403
+      ? "The server rejected the request (HTTP " + e.status + "). Check VITE_SUPABASE_ANON_KEY."
+      : "The server rejected the request (HTTP " + e.status + "). Check the Supabase setup.";
+  }
+  return "Can't reach the server. Try again.";
+}
 
 /** Returns a store if the database accepts the Passphrase, null if it is wrong. Throws if unreachable. */
 async function tryPassphrase(cfg: SupabaseConfig, passphrase: string): Promise<TaskStore | null> {
@@ -40,7 +50,7 @@ export function App() {
           setPhase({ kind: "gate", error: "The saved Passphrase no longer works. Enter it again." });
         }
       })
-      .catch(() => setPhase({ kind: "gate", error: "Can't reach the server. Try again." }));
+      .catch((e) => setPhase({ kind: "gate", error: connectionMessage(e) }));
   }, []);
 
   async function submit(passphrase: string) {
@@ -50,8 +60,8 @@ export function App() {
       if (!store) return setPhase({ kind: "gate", error: "Wrong Passphrase. Try again." });
       passphraseMemory.set(passphrase);
       setPhase({ kind: "open", store });
-    } catch {
-      setPhase({ kind: "gate", error: "Can't reach the server. Try again." });
+    } catch (e) {
+      setPhase({ kind: "gate", error: connectionMessage(e) });
     }
   }
 
@@ -79,13 +89,16 @@ export function App() {
       ) : phase.changing ? (
         <ChangePassphrase
           onChange={changePassphrase}
-          onDone={() => setPhase({ kind: "open", store: phase.store })}
+          onDone={() =>
+            // Functional update: changePassphrase has already swapped in the new store; keep it.
+            setPhase((p) => (p.kind === "open" ? { kind: "open", store: p.store } : p))
+          }
         />
       ) : (
         <>
           <ListsScreen store={phase.store} />
           <p>
-            <button type="button" onClick={() => setPhase({ ...phase, changing: true })}>
+            <button type="button" onClick={() => setPhase({ kind: "open", store: phase.store, changing: true })}>
               Change Passphrase
             </button>
           </p>
