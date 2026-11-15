@@ -3,7 +3,7 @@ import { createSupabaseAdapter, type SupabaseConfig } from "./task-store/supabas
 import { createTaskStore, type TaskStore } from "./task-store/task-store";
 import { passphraseMemory } from "./passphrase-memory";
 import { Gate } from "./Gate";
-import { InboxScreen } from "./InboxScreen";
+import { ListsScreen } from "./ListsScreen";
 import { ChangePassphrase } from "./ChangePassphrase";
 import { createPassphraseChanger } from "./passphrase/passphrase-change";
 import { createSupabasePassphraseAdapter } from "./passphrase/supabase-passphrase-adapter";
@@ -83,7 +83,7 @@ export function App() {
         />
       ) : (
         <>
-          <InboxScreen store={phase.store} />
+          <ListsScreen store={phase.store} />
           <p>
             <button type="button" onClick={() => setPhase({ ...phase, changing: true })}>
               Change Passphrase
