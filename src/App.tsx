@@ -3,7 +3,7 @@ import { createSupabaseAdapter, type SupabaseConfig } from "./task-store/supabas
 import { createTaskStore, type TaskStore } from "./task-store/task-store";
 import { passphraseMemory } from "./passphrase-memory";
 import { Gate } from "./Gate";
-import { InboxScreen } from "./InboxScreen";
+import { ListsScreen } from "./ListsScreen";
 
 const config: SupabaseConfig | null = import.meta.env.VITE_SUPABASE_URL
   ? { url: import.meta.env.VITE_SUPABASE_URL, anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" }
@@ -62,7 +62,7 @@ export function App() {
       ) : phase.kind === "gate" ? (
         <Gate error={phase.error} onSubmit={submit} />
       ) : (
-        <InboxScreen store={phase.store} />
+        <ListsScreen store={phase.store} />
       )}
     </main>
   );

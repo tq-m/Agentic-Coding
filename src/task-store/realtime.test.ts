@@ -71,3 +71,14 @@ describe("task store: offline", () => {
     ]);
   });
 });
+
+describe("task store: offline blocks List edits", () => {
+  it("rejects creating a List while offline", async () => {
+    const { adapter, store } = newStore();
+    store.subscribe(() => {});
+    adapter.setConnected(false);
+    await expect(store.createList("Work")).rejects.toThrow("Offline, can't save");
+    adapter.setConnected(true);
+    expect((await store.lists()).map((l) => l.name)).toEqual(["Inbox"]);
+  });
+});

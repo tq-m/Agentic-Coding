@@ -34,6 +34,7 @@ export function createInMemoryAdapter(): InMemoryAdapter {
   const requireConnection = () => {
     if (!connected) throw new Error("offline");
   };
+  let listSeq = 1;
 
   return {
     failWrites(fail) {
@@ -66,6 +67,37 @@ export function createInMemoryAdapter(): InMemoryAdapter {
       requireConnection();
       if (failing) throw new Error("save failed");
       return { ...insert(listId, title) };
+    },
+    async insertList(name) {
+      requireConnection();
+      if (failing) throw new Error("save failed");
+      const list: List = { id: `list-${++listSeq}`, name };
+      lists.push(list);
+      return { ...list };
+    },
+    async updateListName(listId, name) {
+      requireConnection();
+      if (failing) throw new Error("save failed");
+      const list = lists.find((l) => l.id === listId);
+      if (!list) throw new Error("List not found");
+      list.name = name;
+    },
+    async deleteList(listId) {
+      requireConnection();
+      if (failing) throw new Error("save failed");
+      const i = lists.findIndex((l) => l.id === listId);
+      if (i < 0) throw new Error("List not found");
+      lists.splice(i, 1);
+      // Mirrors the database's ON DELETE CASCADE.
+      for (let j = tasks.length - 1; j >= 0; j--) if (tasks[j].listId === listId) tasks.splice(j, 1);
+    },
+    async updateTaskList(taskId, listId) {
+      requireConnection();
+      if (failing) throw new Error("save failed");
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) throw new Error("Task not found");
+      if (!lists.some((l) => l.id === listId)) throw new Error("List not found");
+      task.listId = listId;
     },
   };
 }
