@@ -21,7 +21,20 @@ export interface Task {
  * Thin storage boundary. No rules live behind it: it only reads and writes
  * rows. Implementations throw when a read or write fails.
  */
+export interface ChangeHandlers {
+  /** Something changed on another device (or this one). Re-read to see it. */
+  onChange(): void;
+  /** The live connection came up (true) or dropped (false). */
+  onConnection(online: boolean): void;
+}
+
 export interface StorageAdapter {
+  /**
+   * Start listening for live changes. Reports the connection state as it
+   * changes and re-establishes the listening itself after a drop; reports
+   * `onConnection(true)` once it is back. Returns a function that stops it.
+   */
+  subscribe(handlers: ChangeHandlers): () => void;
   listLists(): Promise<List[]>;
   listTasks(listId: string): Promise<Task[]>;
   insertTask(input: { listId: string; title: string }): Promise<Task>;

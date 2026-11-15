@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
+import { OfflineBanner, useLiveReload, useOnline } from "./live";
 import type { TaskStore } from "./task-store/task-store";
 import type { List, Task } from "./task-store/types";
 
@@ -13,14 +14,14 @@ export function InboxScreen({ store }: { store: TaskStore }) {
       const list = await store.inbox();
       setInbox(list);
       setTasks(await store.openTasks(list.id));
+      setError(null);
     } catch {
       setError("Couldn't load your Tasks.");
     }
   }, [store]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLiveReload(store, () => void load());
+  const online = useOnline(store);
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -37,15 +38,19 @@ export function InboxScreen({ store }: { store: TaskStore }) {
 
   return (
     <section>
+      {!online && <OfflineBanner />}
       <h2>Inbox</h2>
       <form onSubmit={add}>
         <input
           aria-label="New Task title"
           placeholder="Add a Task"
           value={title}
+          disabled={!online}
           onChange={(e) => setTitle(e.target.value)}
         />{" "}
-        <button type="submit">Add</button>
+        <button type="submit" disabled={!online}>
+          Add
+        </button>
       </form>
       {error && <p role="alert">{error}</p>}
       {tasks.length === 0 ? (
