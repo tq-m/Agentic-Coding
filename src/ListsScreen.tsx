@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import type { TaskStore } from "./task-store/task-store";
 import type { List } from "./task-store/types";
 import { InboxScreen } from "./InboxScreen";
+import { OfflineBanner, useLiveReload, useOnline } from "./live";
 
 /** List switcher and List management. Rules live in the task store. */
 export function ListsScreen({ store }: { store: TaskStore }) {
@@ -26,9 +27,8 @@ export function ListsScreen({ store }: { store: TaskStore }) {
     [store],
   );
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  useLiveReload(store, () => void reload());
+  const online = useOnline(store);
 
   const current = lists.find((l) => l.id === currentId) ?? null;
   const isInbox = current?.name === "Inbox";
@@ -78,6 +78,7 @@ export function ListsScreen({ store }: { store: TaskStore }) {
 
   return (
     <div>
+      {!online && <OfflineBanner />}
       <nav aria-label="Lists">
         {lists.map((l) => (
           <button

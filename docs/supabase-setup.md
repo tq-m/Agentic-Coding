@@ -3,7 +3,7 @@
 ## One-time setup
 
 1. Create a Supabase project (free tier).
-2. In the SQL editor, run `supabase/migrations/20260101000000_lists_tasks_passphrase.sql`, then `supabase/migrations/20260102000000_change_passphrase.sql` (adds the in-app change-Passphrase function). The first creates the lists and tasks tables, seeds the "Inbox" List, and turns on row-level security.
+2. In the SQL editor, run `supabase/migrations/20260101000000_lists_tasks_passphrase.sql`, then `20260102000000_realtime_nudges.sql` (live updates), then `20260103000000_change_passphrase.sql` (adds the in-app change-Passphrase function; it must run after the realtime one because it also updates the realtime channel name). The first creates the lists and tasks tables, seeds the "Inbox" List, and turns on row-level security.
 3. Set the initial Passphrase (at least 8 characters). In the SQL editor run:
 
    ```sql
@@ -60,3 +60,13 @@ curl -X POST "$URL/rest/v1/rpc/change_passphrase" -H "apikey: $ANON" -H "Authori
 ```
 
 Known limit: the function can be called by anyone with the public key, so a guessed current Passphrase is the only protection (same as every other request; there is no rate limiting).
+
+## Live updates and the offline banner
+
+Run `supabase/migrations/20260102000000_realtime_nudges.sql` after the first migration, then **run `select private.set_passphrase('...')` again** (existing installs have no channel name stored until you do; the notifier stays silent until then). Realtime must allow public channels (Project Settings > Realtime > "Allow public access", on by default).
+
+**How the Passphrase reaches realtime subscriptions.** Realtime evaluates row-level security with the connection's JWT, not the `x-passphrase` header, so subscribing to `postgres_changes` on `lists`/`tasks` would deliver nothing (`passphrase_ok()` is false there). This is why the tables are *not* added to the `supabase_realtime` publication. Instead a statement-level trigger on both tables calls `realtime.send` with a payload-free "nudge" (table name and operation only) on a public broadcast channel named `sha256('todo-realtime:' || Passphrase)`, stored in `private.passphrase.realtime_topic` by `set_passphrase`. The browser computes the same name from its Passphrase (`realtimeTopic` in `src/task-store/supabase-adapter.ts`), listens, and on a nudge re-reads through the normal guarded API. Task data never travels over the broadcast. Changing the Passphrase changes the channel; other devices get the gate screen on their next request.
+
+**Offline.** The store reports offline when the browser fires `offline` or the channel errors/closes, shows the "Offline, can't save" banner and blocks adding. On the browser's `online` event the channel is dropped and re-created and the screen re-reads, with no reload.
+
+**Not verified without a live project** (only the in-memory fake is tested automatically): the trigger/`realtime.send` call, that the browser receives the nudge, and the exact channel status values on a real drop. Manual check: with the app open on two devices, add a Task on one (appears on the other within a second or two); then switch one device to airplane mode (banner shows, Add disabled), add a Task from the other device, turn the network back on (banner disappears, the missed Task appears, no reload). If nothing arrives, confirm `select realtime_topic from private.passphrase` is non-null.

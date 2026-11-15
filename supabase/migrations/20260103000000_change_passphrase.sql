@@ -21,7 +21,9 @@ begin
     raise exception 'Passphrase must be at least 8 characters' using errcode = '22023';
   end if;
   update private.passphrase
-     set hash = extensions.crypt(new_passphrase, extensions.gen_salt('bf'))
+     set hash = extensions.crypt(new_passphrase, extensions.gen_salt('bf')),
+         -- keep in step with private.set_passphrase (realtime_nudges migration)
+         realtime_topic = encode(extensions.digest('todo-realtime:' || new_passphrase, 'sha256'), 'hex')
    where id;
 end;
 $$;

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
+import { useLiveReload, useOnline } from "./live";
 import type { TaskStore } from "./task-store/task-store";
 import type { List, Task } from "./task-store/types";
 
@@ -11,14 +12,14 @@ export function InboxScreen({ store, list, lists }: { store: TaskStore; list: Li
   const load = useCallback(async () => {
     try {
       setTasks(await store.openTasks(list.id));
+      setError(null);
     } catch {
       setError("Couldn't load your Tasks.");
     }
   }, [store, list.id]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLiveReload(store, () => void load());
+  const online = useOnline(store);
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -50,9 +51,12 @@ export function InboxScreen({ store, list, lists }: { store: TaskStore; list: Li
           aria-label="New Task title"
           placeholder="Add a Task"
           value={title}
+          disabled={!online}
           onChange={(e) => setTitle(e.target.value)}
         />{" "}
-        <button type="submit">Add</button>
+        <button type="submit" disabled={!online}>
+          Add
+        </button>
       </form>
       {error && <p role="alert">{error}</p>}
       {tasks.length === 0 ? (

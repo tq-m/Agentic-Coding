@@ -23,6 +23,16 @@ const toTask = (r: TaskRow): Task => ({
   createdAt: r.created_at,
 });
 
+/**
+ * Name of the Realtime channel for a Passphrase: hex SHA-256 of a fixed prefix
+ * plus the Passphrase. Must match private.set_passphrase in the SQL migration.
+ */
+export async function realtimeTopic(passphrase: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`todo-realtime:${passphrase}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export interface SupabaseConfig {
   url: string;
   anonKey: string;
@@ -36,6 +46,51 @@ export function createSupabaseAdapter(config: SupabaseConfig, passphrase: string
   });
 
   const adapter: StorageAdapter & { checkPassphrase(): Promise<boolean> } = {
+    /**
+     * Live changes arrive as Realtime broadcast "nudges" on a channel named
+     * after a hash of the Passphrase (see docs/supabase-setup.md). The browser
+     * going offline/online drops and re-creates the channel, so recovery needs no reload.
+     */
+    subscribe({ onChange, onConnection }) {
+      let channel: ReturnType<typeof client.channel> | null = null;
+      let stopped = false;
+
+      async function listen() {
+        const topic = await realtimeTopic(passphrase);
+        if (stopped) return;
+        channel = client
+          .channel(topic)
+          .on("broadcast", { event: "change" }, () => onChange())
+          .subscribe((status) => {
+            if (stopped) return;
+            if (status === "SUBSCRIBED") onConnection(true);
+            else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED")
+              onConnection(false);
+          });
+      }
+      async function drop() {
+        const old = channel;
+        channel = null;
+        if (old) await client.removeChannel(old);
+      }
+      const goOffline = () => onConnection(false);
+      const goOnline = () => {
+        void drop().then(listen);
+      };
+
+      window.addEventListener("offline", goOffline);
+      window.addEventListener("online", goOnline);
+      if (navigator.onLine) void listen();
+      else goOffline();
+
+      return () => {
+        stopped = true;
+        window.removeEventListener("offline", goOffline);
+        window.removeEventListener("online", goOnline);
+        void drop();
+      };
+    },
+
     /** True when the database accepts the Passphrase. Throws if the server can't be reached. */
     async checkPassphrase() {
       const { data, error } = await client.rpc("passphrase_ok");
