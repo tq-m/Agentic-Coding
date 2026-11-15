@@ -37,10 +37,26 @@ export interface StorageAdapter {
   subscribe(handlers: ChangeHandlers): () => void;
   listLists(): Promise<List[]>;
   listTasks(listId: string): Promise<Task[]>;
-  insertTask(input: { listId: string; title: string }): Promise<Task>;
+  insertTask(input: {
+    listId: string;
+    title: string;
+    dueDate?: string | null;
+    note?: string | null;
+  }): Promise<Task>;
+  /** Apply a partial change to one Task and return the saved Task. */
+  updateTask(id: string, patch: TaskPatch): Promise<Task>;
+  /** Permanently remove one Task. */
+  deleteTask(id: string): Promise<void>;
   insertList(name: string): Promise<List>;
   updateListName(listId: string, name: string): Promise<void>;
   /** Deletes the List and, by cascade, all of its Tasks. */
   deleteList(listId: string): Promise<void>;
   updateTaskList(taskId: string, listId: string): Promise<void>;
+}
+
+export interface TaskPatch {
+  title?: string;
+  dueDate?: string | null;
+  note?: string | null;
+  done?: boolean;
 }

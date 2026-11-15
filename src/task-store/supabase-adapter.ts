@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { List, StorageAdapter, Task } from "./types";
+import type { List, StorageAdapter, Task, TaskPatch } from "./types";
 
 export const PASSPHRASE_HEADER = "x-passphrase";
 
@@ -117,14 +117,35 @@ export function createSupabaseAdapter(config: SupabaseConfig, passphrase: string
       return ((data ?? []) as TaskRow[]).map(toTask);
     },
 
-    async insertTask({ listId, title }) {
+    async insertTask({ listId, title, dueDate = null, note = null }) {
       const { data, error } = await client
         .from("tasks")
-        .insert({ list_id: listId, title })
+        .insert({ list_id: listId, title, due_date: dueDate, note })
         .select("*")
         .single();
       if (error) throw new Error(error.message);
       return toTask(data as TaskRow);
+    },
+
+    async updateTask(id, patch: TaskPatch) {
+      const row: Partial<TaskRow> = {};
+      if (patch.title !== undefined) row.title = patch.title;
+      if (patch.dueDate !== undefined) row.due_date = patch.dueDate;
+      if (patch.note !== undefined) row.note = patch.note;
+      if (patch.done !== undefined) row.done = patch.done;
+      const { data, error } = await client
+        .from("tasks")
+        .update(row)
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+      return toTask(data as TaskRow);
+    },
+
+    async deleteTask(id) {
+      const { error } = await client.from("tasks").delete().eq("id", id);
+      if (error) throw new Error(error.message);
     },
 
     async insertList(name) {

@@ -1,4 +1,4 @@
-import type { ChangeHandlers, List, StorageAdapter, Task } from "./types";
+import type { ChangeHandlers, List, StorageAdapter, Task, TaskPatch } from "./types";
 
 export interface InMemoryAdapter extends StorageAdapter {
   /** Test control: make the next writes fail (simulates a failed save). */
@@ -17,14 +17,15 @@ export function createInMemoryAdapter(): InMemoryAdapter {
   let clock = 0;
   let connected = true;
   const subscribers = new Set<ChangeHandlers>();
+  let nextId = 1;
 
-  function insert(listId: string, title: string): Task {
+  function insert(listId: string, title: string, dueDate: string | null = null, note: string | null = null): Task {
     const task: Task = {
-      id: `task-${tasks.length + 1}`,
+      id: `task-${nextId++}`,
       listId,
       title,
-      dueDate: null,
-      note: null,
+      dueDate,
+      note,
       done: false,
       createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, clock++)).toISOString(),
     };
@@ -63,10 +64,25 @@ export function createInMemoryAdapter(): InMemoryAdapter {
       requireConnection();
       return tasks.filter((t) => t.listId === listId).map((t) => ({ ...t }));
     },
-    async insertTask({ listId, title }) {
+    async insertTask({ listId, title, dueDate = null, note = null }) {
       requireConnection();
       if (failing) throw new Error("save failed");
-      return { ...insert(listId, title) };
+      return { ...insert(listId, title, dueDate, note) };
+    },
+    async updateTask(id, patch: TaskPatch) {
+      requireConnection();
+      if (failing) throw new Error("save failed");
+      const task = tasks.find((t) => t.id === id);
+      if (!task) throw new Error("Task not found");
+      Object.assign(task, patch);
+      return { ...task };
+    },
+    async deleteTask(id) {
+      requireConnection();
+      if (failing) throw new Error("save failed");
+      const i = tasks.findIndex((t) => t.id === id);
+      if (i < 0) throw new Error("Task not found");
+      tasks.splice(i, 1);
     },
     async insertList(name) {
       requireConnection();
