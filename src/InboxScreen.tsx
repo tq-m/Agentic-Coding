@@ -9,11 +9,15 @@ function TaskRow({
   onToggle,
   onEdit,
   onDelete,
+  moveTargets,
+  onMove,
 }: {
   task: TaskView;
   onToggle: (t: TaskView) => Promise<void>;
   onEdit: (t: TaskView, c: { title: string; dueDate: string; note: string }) => Promise<boolean>;
   onDelete: (t: TaskView) => Promise<void>;
+  moveTargets: List[];
+  onMove: (t: TaskView, listId: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
@@ -63,13 +67,25 @@ function TaskRow({
       </button>{" "}
       <button type="button" onClick={() => void onDelete(task)}>
         Delete
-      </button>
+      </button>{" "}
+      <select
+        aria-label={`Move "${task.title}" to`}
+        value=""
+        onChange={(e) => e.target.value && void onMove(task, e.target.value)}
+      >
+        <option value="">Move to...</option>
+        {moveTargets.map((l) => (
+          <option key={l.id} value={l.id}>
+            {l.name}
+          </option>
+        ))}
+      </select>
     </li>
   );
 }
 
-export function InboxScreen({ store }: { store: TaskStore }) {
-  const [inbox, setInbox] = useState<List | null>(null);
+/** Tasks of the List being viewed. New Tasks go into this List. */
+export function InboxScreen({ store, list, lists }: { store: TaskStore; list: List; lists: List[] }) {
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [done, setDone] = useState<TaskView[]>([]);
   const [title, setTitle] = useState("");
@@ -77,23 +93,18 @@ export function InboxScreen({ store }: { store: TaskStore }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(
-    async (list: List) => {
-      setTasks(await store.openTasks(list.id));
-      setDone(await store.doneTasks(list.id));
-    },
-    [store],
-  );
+  const refresh = useCallback(async () => {
+    setTasks(await store.openTasks(list.id));
+    setDone(await store.doneTasks(list.id));
+  }, [store, list.id]);
 
   const load = useCallback(async () => {
     try {
-      const list = await store.inbox();
-      setInbox(list);
-      await refresh(list);
+      await refresh();
     } catch {
       setError("Couldn't load your Tasks.");
     }
-  }, [store, refresh]);
+  }, [refresh]);
 
   useEffect(() => {
     void load();
@@ -101,7 +112,6 @@ export function InboxScreen({ store }: { store: TaskStore }) {
 
   /** Run a save; on failure show the error and report false so the caller keeps the input. */
   async function save(action: () => Promise<unknown>): Promise<boolean> {
-    if (!inbox) return false;
     try {
       await action();
       setError(null);
@@ -110,7 +120,7 @@ export function InboxScreen({ store }: { store: TaskStore }) {
       return false;
     }
     try {
-      await refresh(inbox);
+      await refresh();
     } catch {
       setError("Saved, but couldn't reload your Tasks.");
     }
@@ -119,8 +129,8 @@ export function InboxScreen({ store }: { store: TaskStore }) {
 
   async function add(e: FormEvent) {
     e.preventDefault();
-    if (!inbox || !title.trim()) return;
-    if (await save(() => store.addTask(inbox.id, title, { dueDate, note }))) {
+    if (!title.trim()) return;
+    if (await save(() => store.addTask(list.id, title, { dueDate, note }))) {
       setTitle("");
       setDueDate("");
       setNote("");
@@ -131,10 +141,22 @@ export function InboxScreen({ store }: { store: TaskStore }) {
   const edit = (t: TaskView, c: { title: string; dueDate: string; note: string }) =>
     save(() => store.editTask(t.id, c));
   const remove = (t: TaskView) => save(() => store.deleteTask(t.id)).then(() => {});
+  const move = (t: TaskView, listId: string) => save(() => store.moveTask(t.id, listId)).then(() => {});
+  const moveTargets = lists.filter((l) => l.id !== list.id);
+  const row = (t: TaskView) => (
+    <TaskRow
+      key={t.id}
+      task={t}
+      onToggle={toggle}
+      onEdit={edit}
+      onDelete={remove}
+      moveTargets={moveTargets}
+      onMove={move}
+    />
+  );
 
   return (
     <section>
-      <h2>Inbox</h2>
       <form onSubmit={add}>
         <input
           aria-label="New Task title"
@@ -156,17 +178,13 @@ export function InboxScreen({ store }: { store: TaskStore }) {
         <p>No Tasks yet.</p>
       ) : (
         <ul>
-          {tasks.map((t) => (
-            <TaskRow key={t.id} task={t} onToggle={toggle} onEdit={edit} onDelete={remove} />
-          ))}
+          {tasks.map(row)}
         </ul>
       )}
       <details>
         <summary>Done ({done.length})</summary>
         <ul>
-          {done.map((t) => (
-            <TaskRow key={t.id} task={t} onToggle={toggle} onEdit={edit} onDelete={remove} />
-          ))}
+          {done.map(row)}
         </ul>
       </details>
     </section>

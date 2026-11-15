@@ -92,6 +92,28 @@ export function createSupabaseAdapter(config: SupabaseConfig, passphrase: string
       const { error } = await client.from("tasks").delete().eq("id", id);
       if (error) throw new Error(error.message);
     },
+
+    async insertList(name) {
+      const { data, error } = await client.from("lists").insert({ name }).select("id, name").single();
+      if (error) throw new Error(error.message);
+      return data as List;
+    },
+
+    async updateListName(listId, name) {
+      const { error } = await client.from("lists").update({ name }).eq("id", listId);
+      if (error) throw new Error(error.message);
+    },
+
+    /** Tasks go with the List via the tasks.list_id ON DELETE CASCADE foreign key. */
+    async deleteList(listId) {
+      const { error } = await client.from("lists").delete().eq("id", listId);
+      if (error) throw new Error(error.message);
+    },
+
+    async updateTaskList(taskId, listId) {
+      const { error } = await client.from("tasks").update({ list_id: listId }).eq("id", taskId);
+      if (error) throw new Error(error.message);
+    },
   };
   return adapter;
 }
