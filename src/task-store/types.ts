@@ -25,4 +25,9 @@ export interface StorageAdapter {
   listLists(): Promise<List[]>;
   listTasks(listId: string): Promise<Task[]>;
   insertTask(input: { listId: string; title: string }): Promise<Task>;
+  insertList(name: string): Promise<List>;
+  updateListName(listId: string, name: string): Promise<void>;
+  /** Deletes the List and, by cascade, all of its Tasks. */
+  deleteList(listId: string): Promise<void>;
+  updateTaskList(taskId: string, listId: string): Promise<void>;
 }
