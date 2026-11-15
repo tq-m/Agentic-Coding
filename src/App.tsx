@@ -4,6 +4,9 @@ import { createTaskStore, type TaskStore } from "./task-store/task-store";
 import { passphraseMemory } from "./passphrase-memory";
 import { Gate } from "./Gate";
 import { InboxScreen } from "./InboxScreen";
+import { ChangePassphrase } from "./ChangePassphrase";
+import { createPassphraseChanger } from "./passphrase/passphrase-change";
+import { createSupabasePassphraseAdapter } from "./passphrase/supabase-passphrase-adapter";
 
 const config: SupabaseConfig | null = import.meta.env.VITE_SUPABASE_URL
   ? { url: import.meta.env.VITE_SUPABASE_URL, anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" }
@@ -12,7 +15,7 @@ const config: SupabaseConfig | null = import.meta.env.VITE_SUPABASE_URL
 type Phase =
   | { kind: "checking" }
   | { kind: "gate"; error?: string }
-  | { kind: "open"; store: TaskStore };
+  | { kind: "open"; store: TaskStore; changing?: boolean };
 
 /** Returns a store if the database accepts the Passphrase, null if it is wrong. Throws if unreachable. */
 async function tryPassphrase(cfg: SupabaseConfig, passphrase: string): Promise<TaskStore | null> {
@@ -52,6 +55,18 @@ export function App() {
     }
   }
 
+  async function changePassphrase(current: string, next: string) {
+    const result = await createPassphraseChanger(createSupabasePassphraseAdapter(config!), passphraseMemory).change(
+      current,
+      next,
+    );
+    if (result.ok) {
+      // The old store still sends the old Passphrase; open a new one with the new Passphrase.
+      setPhase({ kind: "open", store: createTaskStore(createSupabaseAdapter(config!, next)) });
+    }
+    return result;
+  }
+
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: 560, margin: "0 auto" }}>
       <h1>To-do</h1>
@@ -61,8 +76,20 @@ export function App() {
         <p>Loading...</p>
       ) : phase.kind === "gate" ? (
         <Gate error={phase.error} onSubmit={submit} />
+      ) : phase.changing ? (
+        <ChangePassphrase
+          onChange={changePassphrase}
+          onDone={() => setPhase({ kind: "open", store: phase.store })}
+        />
       ) : (
-        <InboxScreen store={phase.store} />
+        <>
+          <InboxScreen store={phase.store} />
+          <p>
+            <button type="button" onClick={() => setPhase({ ...phase, changing: true })}>
+              Change Passphrase
+            </button>
+          </p>
+        </>
       )}
     </main>
   );
